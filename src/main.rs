@@ -1,6 +1,7 @@
 use regex::RegexBuilder;
 use std::error::Error;
-use std::path::Path;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::process::Command;
 
 const ASA_STAGE4_SCRIPT_URL: &str = "https://raw.githubusercontent.com/asarubbo/gentoo-stage4/master/autoinstaller-scripts/stage4/stage4";
@@ -9,6 +10,15 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 fn main() -> Result<()> {
     let stage4_url = get_stage4_url(Profile::Hardened)?;
     println!("using stage4 url '{}'", stage4_url);
+
+    println!("downloading..");
+    download_stage_4(stage4_url)?;
+    println!("done downloading..");
+
+    println!("unpacking");
+    fs::create_dir_all("chroot_tokyo")?;
+    unpack_stage_4("stage4.tar", "chroot_tokyo")?;
+    println!("finished unpacking");
     Ok(())
 }
 
@@ -35,26 +45,31 @@ fn get_stage4_url(profile: Profile) -> Result<String> {
         .to_owned())
 }
 
-fn unpack_stage_4<P: AsRef<Path>>(tar_file: &str, target: P) -> Result<()> {
+fn download_stage_4(url: String) -> Result<()> {
+    let mut resp = reqwest::blocking::get(url)?;
+    let mut fd = File::create("stage4.tar")?;
+    resp.copy_to(&mut fd)?;
+    Ok(())
+}
+
+fn unpack_stage_4(tar_file: &str, target: &str) -> Result<()> {
     // tar xpvf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner
 
     let output = Command::new("tar")
         .args(&[
-            "x",
-            "p",
-            "v",
-            "f",
+            "xpvf",
             tar_file,
+            "-C",
+            target,
             "--xattrs-include='*.*'",
             "--numeric-owner",
         ])
         .output()?;
 
-    output
-        .status
-        .success()
-        .then(|| ())
-        .ok_or("failed to unpack tarball")?;
+    if !output.status.success() {
+        io::stderr().write_all(&output.stderr).unwrap();
+    }
+
     Ok(())
 }
 
